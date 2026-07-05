@@ -1,0 +1,271 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Strava-Mapy - full stack (API, Lambdas, CloudFront distributions)
+
+Parameters:
+  StravaClientId:
+    Type: String
+    Default: '163773'
+  StravaClientSecret:
+    Type: String
+    NoEcho: true
+  DomainName:
+    Type: String
+    Default: api.strava-mapy.com
+  SiteDomain:
+    Type: String
+    Default: strava-mapy.com
+  WwwDomain:
+    Type: String
+    Default: www.strava-mapy.com
+  AcmCertificateArn:
+    Type: String
+    Description: ACM certificate ARN in us-east-1 for CloudFront
+    Default: arn:aws:acm:us-east-1:879512503706:certificate/2b231d05-5d6e-4989-8424-1384511958ff
+  S3BucketWebsiteEndpoint:
+    Type: String
+    Default: strava-mapy.com.s3-website.eu-north-1.amazonaws.com
+  HostedZoneId:
+    Type: String
+    Default: Z04213722SEUHHOY8UE7
+  ApiGatewayDomainTarget:
+    Type: String
+    Default: d-99o7mg7ou2.execute-api.eu-north-1.amazonaws.com
+
+Globals:
+  Function:
+    Runtime: python3.13
+    MemorySize: 128
+    Timeout: 3
+    Architectures:
+      - x86_64
+
+Resources:
+  # ---- HTTP API ----
+  StravaMapyApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: $default
+      CorsConfiguration:
+        AllowCredentials: false
+        AllowHeaders:
+          - '*'
+        AllowMethods:
+          - '*'
+        AllowOrigins:
+          - https://strava-mapy.com
+          - http://localhost:5500
+          - http://localhost:5173
+
+  # ---- Map existing custom domain to the new API ----
+  ApiMapping:
+    Type: AWS::ApiGatewayV2::ApiMapping
+    Properties:
+      DomainName: !Ref DomainName
+      ApiId: !Ref StravaMapyApi
+      Stage: !Ref StravaMapyApi.Stage
+
+  # ---- Lambda: exchange-token ----
+  ExchangeTokenFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: strava-exchange-token
+      Handler: lambda_function.lambda_handler
+      CodeUri: ../lambda-exchange-token/
+      Environment:
+        Variables:
+          STRAVA_CLIENT_ID: !Ref StravaClientId
+          STRAVA_CLIENT_SECRET: !Ref StravaClientSecret
+      Events:
+        PostExchangeToken:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref StravaMapyApi
+            Path: /exchange-token
+            Method: POST
+
+  # ---- Lambda: activity-streams-proxy ----
+  ActivityStreamsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: activity-streams-proxy
+      Handler: lambda_function.handler
+      CodeUri: ../lambda-activity-streams/
+      Environment:
+        Variables:
+          CORS_ORIGIN: strava-mapy.com
+      Events:
+        GetStreams:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref StravaMapyApi
+            Path: /activities/{activityId}/streams
+            Method: GET
+
+  # ---- CloudFront Function: Redirect www to apex ----
+  RedirectWWWFunction:
+    Type: AWS::CloudFront::Function
+    Properties:
+      Name: RedirectWWW
+      AutoPublish: true
+      FunctionConfig:
+        Comment: Redirects www.strava-mapy.com to strava-mapy.com
+        Runtime: cloudfront-js-2.0
+      FunctionCode: !Sub |
+        function handler(event) {
+          var request = event.request;
+          var host = request.headers.host.value;
+          if (host.startsWith('www.')) {
+            var newHost = host.replace(/^www\./, '');
+            var redirectUrl = 'https://' + newHost + request.uri;
+            if (request.querystring && request.querystring.length > 0) {
+              redirectUrl += '?' + request.querystring;
+            }
+            return {
+              statusCode: 301,
+              statusDescription: 'Moved Permanently',
+              headers: { location: { value: redirectUrl } },
+            };
+          }
+          return request;
+        }
+
+  # ---- CloudFront Function: Rewrite /activities/* to /index.html ----
+  RewriteActivitiesFunction:
+    Type: AWS::CloudFront::Function
+    Properties:
+      Name: RewriteActivitiesToIndex
+      AutoPublish: true
+      FunctionConfig:
+        Comment: Rewrites /activities/* to /index.html for SPA routing
+        Runtime: cloudfront-js-2.0
+      FunctionCode: |
+        function handler(event) {
+          var request = event.request;
+          if (request.uri.startsWith("/activities/")) {
+            request.uri = "/index.html";
+          }
+          return request;
+        }
+
+  # ---- CloudFront: Main site (strava-mapy.com) ----
+  SiteDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Aliases:
+          - !Ref SiteDomain
+        DefaultRootObject: index.html
+        HttpVersion: http2
+        IPV6Enabled: true
+        PriceClass: PriceClass_100
+        ViewerCertificate:
+          AcmCertificateArn: !Ref AcmCertificateArn
+          SslSupportMethod: sni-only
+          MinimumProtocolVersion: TLSv1.2_2021
+        Origins:
+          - Id: S3WebsiteOrigin
+            DomainName: !Ref S3BucketWebsiteEndpoint
+            CustomOriginConfig:
+              HTTPPort: 80
+              OriginProtocolPolicy: http-only
+        DefaultCacheBehavior:
+          TargetOriginId: S3WebsiteOrigin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD]
+          CachedMethods: [GET, HEAD]
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6  # CachingOptimized
+          ResponseHeadersPolicyId: 60669652-455b-4ae9-85a4-c4c02393f86c  # SimpleCORS
+        CacheBehaviors:
+          - PathPattern: /activities/*
+            TargetOriginId: S3WebsiteOrigin
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [GET, HEAD]
+            CachedMethods: [GET, HEAD]
+            Compress: true
+            CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+            FunctionAssociations:
+              - EventType: viewer-request
+                FunctionARN: !GetAtt RewriteActivitiesFunction.FunctionARN
+
+  # ---- CloudFront: WWW redirect (www.strava-mapy.com → strava-mapy.com) ----
+  WwwDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Aliases:
+          - !Ref WwwDomain
+        HttpVersion: http2
+        IPV6Enabled: true
+        PriceClass: PriceClass_All
+        ViewerCertificate:
+          AcmCertificateArn: !Ref AcmCertificateArn
+          SslSupportMethod: sni-only
+          MinimumProtocolVersion: TLSv1.2_2021
+        Origins:
+          - Id: DummyOrigin
+            DomainName: !Ref SiteDomain
+            CustomOriginConfig:
+              HTTPPort: 80
+              HTTPSPort: 443
+              OriginProtocolPolicy: https-only
+              OriginSSLProtocols: [TLSv1.2]
+        DefaultCacheBehavior:
+          TargetOriginId: DummyOrigin
+          ViewerProtocolPolicy: https-only
+          AllowedMethods: [GET, HEAD]
+          CachedMethods: [GET, HEAD]
+          Compress: true
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+          FunctionAssociations:
+            - EventType: viewer-request
+              FunctionARN: !GetAtt RedirectWWWFunction.FunctionARN
+
+  # ---- Route53 DNS Records ----
+  SiteDnsRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref SiteDomain
+      Type: A
+      AliasTarget:
+        HostedZoneId: Z2FDTNDATAQYW2  # CloudFront global hosted zone ID
+        DNSName: !GetAtt SiteDistribution.DomainName
+        EvaluateTargetHealth: false
+
+  WwwDnsRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref WwwDomain
+      Type: A
+      AliasTarget:
+        HostedZoneId: Z2FDTNDATAQYW2
+        DNSName: !GetAtt WwwDistribution.DomainName
+        EvaluateTargetHealth: false
+
+  ApiDnsRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref DomainName
+      Type: CNAME
+      TTL: '300'
+      ResourceRecords:
+        - !Ref ApiGatewayDomainTarget
+
+Outputs:
+  ApiEndpoint:
+    Description: API Gateway endpoint URL
+    Value: !Sub https://${StravaMapyApi}.execute-api.${AWS::Region}.amazonaws.com
+  CustomDomain:
+    Description: Custom domain
+    Value: !Sub https://${DomainName}
+  SiteDistributionId:
+    Description: CloudFront distribution ID for strava-mapy.com
+    Value: !Ref SiteDistribution
+  WwwDistributionId:
+    Description: CloudFront distribution ID for www.strava-mapy.com
+    Value: !Ref WwwDistribution

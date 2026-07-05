@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mapy.com vizualizer for Strava</title>
+
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+ 
+</head>
+
+<body>
+
+  <div id="login">
+    <h1>Strava-Mapy vizualizer</h1>
+
+    <a id="strava-connect" href="#">
+      <img src="/connect_with_strava_orange.png" alt="Connect with Strava" class="oauth-btn">
+    </a>
+
+    <div style="margin-top: 2rem; text-align: left; max-width: 600px; margin-inline: auto;">
+
+      <!-- English Feature List -->
+      <h3>
+        <img src="https://flagcdn.com/w20/gb.png" width="20" height="15" alt="English flag"
+          style="vertical-align: middle; margin-right: 6px;">
+        Features
+      </h3>
+      <ul style="line-height: 1.6;">
+        <li>🗺️ View activities on a <strong>Mapy.com background</strong>, including hiking and cycling trails.</li>
+        <li>🚴 Your <strong>most recent activity</strong> is instantly displayed after login.</li>
+        <li>🔗 Or easily open any activity from Strava by adding <code>-mapy</code> to the URL.<br>
+          Example:<br>
+          <code>https://www.strava.com/activities/123456</code><br>
+          ⟶ <code>https://www.strava<span class="mapy-suffix">-mapy</span>.com/activities/123456</code>
+        </li>
+      </ul>
+
+      <!-- Czech Feature List -->
+      <h3>
+        <img src="https://flagcdn.com/w20/cz.png" width="20" height="15" alt="Czech flag"
+          style="vertical-align: middle; margin-right: 6px;">
+        Funkce
+      </h3>
+      <ul style="line-height: 1.6;">
+        <li>🗺️ Zobrazení aktivit na <strong>podkladu Mapy.com</strong>, včetně turistických a cyklistických tras.</li>
+        <li>🚴 Vaše <strong>poslední aktivita</strong> se zobrazí ihned po přihlášení.</li>
+        <li>🔗 Aktivitu lze také otevřít přímo ze Stravy přidáním <code>-mapy</code> do URL adresy.<br>
+          Příklad:<br>
+          <code>https://www.strava.com/activities/123456</code><br>
+          ⟶ <code>https://www.strava<span class="mapy-suffix">-mapy</span>.com/activities/123456</code>
+        </li>
+      </ul>
+
+    </div>
+    <footer style="text-align: center; padding: 2rem 1rem; font-size: 14px; color: #666;">
+      Have feedback or ideas? Let me know at
+      <a href="mailto:jan.tauchmann@gmail.com" style="color: #0073e6; text-decoration: none;">
+        jan.tauchmann@gmail.com
+      </a>
+    </footer>
+  </div>
+
+
+  <div id="map"></div>
+
+  <div id="spinner" class="spinner-overlay" aria-live="polite" aria-busy="false">
+    <div class="spinner" role="status" aria-label="Loading"></div>
+    <span class="sr-only">Loading…</span>
+  </div>
+
+    <script type="module" src="/src/main.js"></script>
+</body>
+
+</html>
