@@ -16,6 +16,7 @@ let accessToken = '';
 let latlngs = [];
 let activities = [];
 let activityIndex = 0;
+let isSharedMode = false;
 
 // Detect access token from redirect
 const params = new URLSearchParams(window.location.search);
@@ -97,20 +98,22 @@ const showMap = (activity) => {
 
   //map.fitBounds(polyline.getBounds());
 
-  // Create arrows
-  if (activityIndex > 0) {
-    const arrowLeft = L.DomUtil.create('div', 'arrow-control right-arrow', map.getContainer());
-    arrowLeft.innerHTML = '&#9654;'; // ▶
-    arrowLeft.title = getInfoTextShort(activities[activityIndex - 1]);
-    arrowLeft.onclick = () => onSwitchActivity(activityIndex - 1, map);
+  // Create arrows (not in shared mode)
+  if (!isSharedMode) {
+    if (activityIndex > 0) {
+      const arrowLeft = L.DomUtil.create('div', 'arrow-control right-arrow', map.getContainer());
+      arrowLeft.innerHTML = '&#9654;'; // ▶
+      arrowLeft.title = getInfoTextShort(activities[activityIndex - 1]);
+      arrowLeft.onclick = () => onSwitchActivity(activityIndex - 1, map);
 
-  }
-  if (activityIndex < activities.length - 1) {
-    const arrowRight = L.DomUtil.create('div', 'arrow-control left-arrow', map.getContainer());
-    arrowRight.innerHTML = '&#9664;'; // ◀
-    arrowRight.title = getInfoTextShort(activities[activityIndex + 1]);
-    arrowRight.onclick = () => onSwitchActivity(activityIndex + 1, map);
+    }
+    if (activityIndex < activities.length - 1) {
+      const arrowRight = L.DomUtil.create('div', 'arrow-control left-arrow', map.getContainer());
+      arrowRight.innerHTML = '&#9664;'; // ◀
+      arrowRight.title = getInfoTextShort(activities[activityIndex + 1]);
+      arrowRight.onclick = () => onSwitchActivity(activityIndex + 1, map);
 
+    }
   }
 
 
@@ -118,26 +121,38 @@ const showMap = (activity) => {
   const infoText = L.DomUtil.create('div', 'info-text', map.getContainer());
   infoText.innerHTML = getInfoText(activity);
   
-  // Combo-box
-  const selectBox = L.DomUtil.create('select', 'activity-selector', map.getContainer());
-  activities.forEach((act, i) => {
-    const option = document.createElement('option');
-    option.value = i;
-    option.text = getInfoTextShort(act);
-    if (act.id === activity.id) {
-      option.selected = true;
-    }
-    selectBox.appendChild(option);
-  });
+  // Combo-box (not in shared mode)
+  if (!isSharedMode) {
+    const selectBox = L.DomUtil.create('select', 'activity-selector', map.getContainer());
+    activities.forEach((act, i) => {
+      const option = document.createElement('option');
+      option.value = i;
+      option.text = getInfoTextShort(act);
+      if (act.id === activity.id) {
+        option.selected = true;
+      }
+      selectBox.appendChild(option);
+    });
 
-  selectBox.onchange = (e) => {
-    const selectedIndex = parseInt(e.target.value, 10);
-    onSwitchActivity(selectedIndex, map);
-  };
+    selectBox.onchange = (e) => {
+      const selectedIndex = parseInt(e.target.value, 10);
+      onSwitchActivity(selectedIndex, map);
+    };
+  }
 
+
+  // Share button (only when logged in, not in shared mode)
+  if (accessToken && !isSharedMode) {
+    const shareBtn = L.DomUtil.create('div', 'share-button', map.getContainer());
+    shareBtn.innerHTML = '&#128279; Share';
+    shareBtn.title = 'Share this activity';
+    shareBtn.onclick = () => shareActivity(activity);
+  }
 
   // Change URL without reloading
-  window.history.pushState({}, '', `/activities/${activity.id}`);
+  if (!isSharedMode) {
+    window.history.pushState({}, '', `/activities/${activity.id}`);
+  }
 
 };
 
@@ -220,8 +235,96 @@ const getActivityIdFromURL = () => {
     return ''
   }
 }
+
+const getSharedIdFromURL = () => {
+  const path = window.location.pathname;
+  const match = path.match(/^\/shared\/([^\/]+)$/);
+  return match ? match[1] : '';
+}
+
+async function shareActivity(activity) {
+  try {
+    const payload = {
+      latlngs: activity.latlngs,
+      name: activity.name,
+      start_date_local: activity.start_date_local,
+      elapsed_time: activity.elapsed_time,
+      distance: activity.distance,
+      type: activity.type,
+      strava_activity_id: activity.id,
+    };
+
+    const res = await fetch('https://api.strava-mapy.com/share', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!res.ok) {
+      const err = await res.json();
+      alert('Share failed: ' + (err.error || 'Unknown error'));
+      return;
+    }
+
+    const data = await res.json();
+    await navigator.clipboard.writeText(data.url);
+    showShareNotification(data.url);
+  } catch (e) {
+    console.error('Share error:', e);
+    alert('Failed to share activity.');
+  }
+}
+
+function showShareNotification(url) {
+  // Remove existing notification if any
+  const existing = document.querySelector('.share-notification');
+  if (existing) existing.remove();
+
+  const notif = document.createElement('div');
+  notif.className = 'share-notification';
+  notif.innerHTML = `Link copied to clipboard!<br><a href="${url}" target="_blank">${url}</a>`;
+  document.body.appendChild(notif);
+
+  setTimeout(() => notif.remove(), 5000);
+}
+
+async function loadSharedActivity() {
+  const shareId = getSharedIdFromURL();
+  if (!shareId) return false;
+
+  isSharedMode = true;
+  showSpinner();
+
+  try {
+    const res = await fetch(`/shared-data/${shareId}.json`);
+    if (!res.ok) {
+      hideSpinner();
+      document.getElementById('login').style.display = 'none';
+      document.getElementById('map').style.display = 'block';
+      document.getElementById('map').innerHTML = '<p style="padding:2em;">Shared activity not found or has expired.</p>';
+      return true;
+    }
+
+    const activity = await res.json();
+    activity.id = activity.strava_activity_id || shareId;
+    showMap(activity);
+  } catch (e) {
+    console.error('Error loading shared activity:', e);
+    alert('Failed to load shared activity.');
+  } finally {
+    hideSpinner();
+  }
+
+  return true;
+}
 const init = async () => {
   try {
+    // Handle shared activity route (no auth needed)
+    if (await loadSharedActivity()) return;
+
     const code = params.get("code");
 
 

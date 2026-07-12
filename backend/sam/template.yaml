@@ -102,6 +102,35 @@ Resources:
             Path: /activities/{activityId}/streams
             Method: GET
 
+  # ---- Lambda: share-activity ----
+  ShareActivityFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: share-activity
+      Handler: lambda_function.handler
+      CodeUri: ../lambda-share-activity/
+      Timeout: 15
+      Environment:
+        Variables:
+          S3_BUCKET: !Ref SiteDomain
+          S3_PREFIX: shared-data/
+          SITE_DOMAIN: !Sub https://${SiteDomain}
+          CORS_ORIGIN: !Sub https://${SiteDomain}
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:PutObject
+              Resource: !Sub arn:aws:s3:::${SiteDomain}/shared-data/*
+      Events:
+        PostShare:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref StravaMapyApi
+            Path: /share
+            Method: POST
+
   # ---- CloudFront Function: Redirect www to apex ----
   RedirectWWWFunction:
     Type: AWS::CloudFront::Function
@@ -130,19 +159,22 @@ Resources:
           return request;
         }
 
-  # ---- CloudFront Function: Rewrite /activities/* to /index.html ----
+  # ---- CloudFront Function: Rewrite /activities/* and /shared/* to /index.html ----
   RewriteActivitiesFunction:
     Type: AWS::CloudFront::Function
     Properties:
       Name: RewriteActivitiesToIndex
       AutoPublish: true
       FunctionConfig:
-        Comment: Rewrites /activities/* to /index.html for SPA routing
+        Comment: Rewrites /activities/* and /shared/* (not /shared-data/*) to /index.html for SPA routing
         Runtime: cloudfront-js-2.0
       FunctionCode: |
         function handler(event) {
           var request = event.request;
           if (request.uri.startsWith("/activities/")) {
+            request.uri = "/index.html";
+          }
+          if (request.uri.startsWith("/shared/") && !request.uri.startsWith("/shared-data/")) {
             request.uri = "/index.html";
           }
           return request;
@@ -179,6 +211,16 @@ Resources:
           ResponseHeadersPolicyId: 60669652-455b-4ae9-85a4-c4c02393f86c  # SimpleCORS
         CacheBehaviors:
           - PathPattern: /activities/*
+            TargetOriginId: S3WebsiteOrigin
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [GET, HEAD]
+            CachedMethods: [GET, HEAD]
+            Compress: true
+            CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+            FunctionAssociations:
+              - EventType: viewer-request
+                FunctionARN: !GetAtt RewriteActivitiesFunction.FunctionARN
+          - PathPattern: /shared/*
             TargetOriginId: S3WebsiteOrigin
             ViewerProtocolPolicy: redirect-to-https
             AllowedMethods: [GET, HEAD]
