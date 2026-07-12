@@ -176,30 +176,119 @@
       background: rgba(220, 220, 220, 0.95);
     }
 
-    /* Share notification */
-    .share-notification {
+    /* Share dialog overlay */
+    .share-dialog-overlay {
       position: fixed;
-      top: 20px;
-      left: 50%;
-      transform: translateX(-50%);
-      background: #2d8c3c;
-      color: white;
-      padding: 12px 20px;
-      border-radius: 8px;
-      font-size: 14px;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.4);
+      display: flex;
+      align-items: center;
+      justify-content: center;
       z-index: 10000;
-      text-align: center;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-      animation: fadeInOut 5s ease-in-out;
     }
 
-    .share-notification a {
-      color: #d0f0d0;
+    .share-dialog {
+      background: #fff;
+      border-radius: 10px;
+      padding: 24px 28px;
+      min-width: 420px;
+      max-width: 520px;
+      position: relative;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
     }
 
-    @keyframes fadeInOut {
-      0% { opacity: 0; transform: translateX(-50%) translateY(-10px); }
-      10% { opacity: 1; transform: translateX(-50%) translateY(0); }
-      80% { opacity: 1; }
-      100% { opacity: 0; }
+    .share-dialog-close {
+      position: absolute;
+      top: 12px;
+      right: 16px;
+      background: none;
+      border: none;
+      font-size: 24px;
+      cursor: pointer;
+      color: #555;
+      line-height: 1;
+    }
+
+    .share-dialog-close:hover {
+      color: #000;
+    }
+
+    .share-dialog-title {
+      margin: 0 0 16px 0;
+      font-size: 18px;
+      color: #333;
+    }
+
+    .share-dialog-buttons {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 18px;
+    }
+
+    .share-btn {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 14px;
+      border-radius: 4px;
+      text-decoration: none;
+      font-size: 13px;
+      font-weight: 600;
+      color: #fff;
+      border: 1px solid #ddd;
+    }
+
+    .share-btn-icon {
+      font-size: 15px;
+      font-weight: bold;
+    }
+
+    .share-btn-facebook {
+      background: #1877f2;
+      border-color: #1877f2;
+    }
+
+    .share-btn-x {
+      background: #000;
+      border-color: #000;
+    }
+
+    .share-btn-email {
+      background: #d93025;
+      border-color: #d93025;
+    }
+
+    .share-btn:hover {
+      opacity: 0.85;
+    }
+
+    .share-dialog-url-row {
+      display: flex;
+      gap: 0;
+      margin-top: 4px;
+    }
+
+    .share-dialog-url {
+      flex: 1;
+      padding: 10px 12px;
+      border: 1px solid #ccc;
+      border-radius: 4px 0 0 4px;
+      font-size: 13px;
+      outline: none;
+    }
+
+    .share-dialog-copy-btn {
+      padding: 10px 16px;
+      background: #2d8c3c;
+      color: #fff;
+      border: none;
+      border-radius: 0 4px 4px 0;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .share-dialog-copy-btn:hover {
+      background: #246e30;
     }

@@ -144,7 +144,7 @@ const showMap = (activity) => {
   // Share button (only when logged in, not in shared mode)
   if (accessToken && !isSharedMode) {
     const shareBtn = L.DomUtil.create('div', 'share-button', map.getContainer());
-    shareBtn.innerHTML = '&#128279; Share';
+    shareBtn.innerHTML = '&#128279; Share activity';
     shareBtn.title = 'Share this activity';
     shareBtn.onclick = () => shareActivity(activity);
   }
@@ -244,6 +244,7 @@ const getSharedIdFromURL = () => {
 
 async function shareActivity(activity) {
   try {
+    showSpinner();
     const payload = {
       latlngs: activity.latlngs,
       name: activity.name,
@@ -270,25 +271,81 @@ async function shareActivity(activity) {
     }
 
     const data = await res.json();
-    await navigator.clipboard.writeText(data.url);
-    showShareNotification(data.url);
+    showShareDialog(data.url);
   } catch (e) {
     console.error('Share error:', e);
     alert('Failed to share activity.');
+  } finally {
+    hideSpinner();
   }
 }
 
-function showShareNotification(url) {
-  // Remove existing notification if any
-  const existing = document.querySelector('.share-notification');
+function showShareDialog(url) {
+  // Remove existing dialog if any
+  const existing = document.querySelector('.share-dialog-overlay');
   if (existing) existing.remove();
 
-  const notif = document.createElement('div');
-  notif.className = 'share-notification';
-  notif.innerHTML = `Link copied to clipboard!<br><a href="${url}" target="_blank">${url}</a>`;
-  document.body.appendChild(notif);
+  const overlay = document.createElement('div');
+  overlay.className = 'share-dialog-overlay';
 
-  setTimeout(() => notif.remove(), 5000);
+  const dialog = document.createElement('div');
+  dialog.className = 'share-dialog';
+
+  const closeBtn = document.createElement('button');
+  closeBtn.className = 'share-dialog-close';
+  closeBtn.innerHTML = '&times;';
+  closeBtn.onclick = () => overlay.remove();
+
+  const title = document.createElement('h3');
+  title.className = 'share-dialog-title';
+  title.textContent = 'Share link';
+
+  const buttons = document.createElement('div');
+  buttons.className = 'share-dialog-buttons';
+
+  const fbBtn = document.createElement('a');
+  fbBtn.className = 'share-btn share-btn-facebook';
+  fbBtn.href = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}`;
+  fbBtn.target = '_blank';
+  fbBtn.innerHTML = '<span class="share-btn-icon">f</span> Facebook';
+
+  const xBtn = document.createElement('a');
+  xBtn.className = 'share-btn share-btn-x';
+  xBtn.href = `https://x.com/intent/tweet?url=${encodeURIComponent(url)}`;
+  xBtn.target = '_blank';
+  xBtn.innerHTML = '<span class="share-btn-icon">𝕏</span> X';
+
+  const emailBtn = document.createElement('a');
+  emailBtn.className = 'share-btn share-btn-email';
+  emailBtn.href = `mailto:?body=${encodeURIComponent(url)}`;
+  emailBtn.innerHTML = '<span class="share-btn-icon">✉</span> E-mail';
+
+  buttons.append(fbBtn, xBtn, emailBtn);
+
+  const urlRow = document.createElement('div');
+  urlRow.className = 'share-dialog-url-row';
+
+  const urlInput = document.createElement('input');
+  urlInput.className = 'share-dialog-url';
+  urlInput.type = 'text';
+  urlInput.value = url;
+  urlInput.readOnly = true;
+
+  const copyBtn = document.createElement('button');
+  copyBtn.className = 'share-dialog-copy-btn';
+  copyBtn.textContent = 'Copy link';
+  copyBtn.onclick = async () => {
+    await navigator.clipboard.writeText(url);
+    copyBtn.textContent = 'Copied!';
+    setTimeout(() => { copyBtn.textContent = 'Copy link'; }, 2000);
+  };
+
+  urlRow.append(urlInput, copyBtn);
+  dialog.append(closeBtn, title, buttons, urlRow);
+  overlay.appendChild(dialog);
+  document.body.appendChild(overlay);
+
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
 }
 
 async function loadSharedActivity() {
