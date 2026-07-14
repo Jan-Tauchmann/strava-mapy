@@ -2,6 +2,8 @@ import json
 import uuid
 import os
 import urllib.request
+import secrets
+import string
 import boto3
 from datetime import datetime
 
@@ -98,7 +100,7 @@ def handler(event, context):
         return _error(400, "name must be a string of max 200 characters")
 
     # Build the shared activity object
-    share_id = str(uuid.uuid4())
+    share_id = ''.join(secrets.choice(string.ascii_lowercase) for _ in range(10))
     shared_activity = {
         "latlngs": latlngs,
         "name": name,
@@ -107,6 +109,9 @@ def handler(event, context):
         "distance": data.get("distance", 0),
         "type": data.get("type", ""),
         "strava_activity_id": data.get("strava_activity_id"),
+        "athlete_firstname": data.get("athlete_firstname", ""),
+        "athlete_lastname": data.get("athlete_lastname", ""),
+        "athlete_profile": data.get("athlete_profile", ""),
         "shared_at": datetime.utcnow().isoformat() + "Z",
     }
 

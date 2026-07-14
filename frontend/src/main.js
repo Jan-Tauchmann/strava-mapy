@@ -17,6 +17,7 @@ let latlngs = [];
 let activities = [];
 let activityIndex = 0;
 let isSharedMode = false;
+let athlete = null;
 
 // Detect access token from redirect
 const params = new URLSearchParams(window.location.search);
@@ -81,6 +82,37 @@ const showMap = (activity) => {
     .addTo(map);
 */
 
+  // Track hover tooltip – shows elapsed/remaining km
+  const hitLine = L.polyline(activity.latlngs, { weight: 20, opacity: 0, interactive: true }).addTo(map);
+  const tooltip = L.DomUtil.create('div', 'track-tooltip', map.getContainer());
+  tooltip.style.display = 'none';
+
+  const trackPts = activity.latlngs.map(p => L.latLng(p[0], p[1]));
+  const cumDist = [0];
+  for (let k = 1; k < trackPts.length; k++) {
+    cumDist.push(cumDist[k - 1] + trackPts[k - 1].distanceTo(trackPts[k]));
+  }
+  const totalDistM = cumDist[cumDist.length - 1];
+
+  const showTrackTooltip = (e) => {
+    let minD = Infinity, nearIdx = 0;
+    for (let k = 0; k < trackPts.length; k++) {
+      const d = e.latlng.distanceTo(trackPts[k]);
+      if (d < minD) { minD = d; nearIdx = k; }
+    }
+    const fromStart = (cumDist[nearIdx] / 1000).toFixed(1);
+    const toEnd = ((totalDistM - cumDist[nearIdx]) / 1000).toFixed(1);
+    tooltip.innerHTML = `<span><strong>${fromStart}</strong> km<br>od startu</span><span><strong>${toEnd}</strong> km<br>do c\xEDle</span>`;
+    tooltip.style.display = 'flex';
+    const pt = map.latLngToContainerPoint(e.latlng);
+    tooltip.style.left = pt.x + 'px';
+    tooltip.style.top = (pt.y - 10) + 'px';
+  };
+
+  hitLine.on('mousemove', showTrackTooltip);
+  hitLine.on('click', showTrackTooltip);
+  hitLine.on('mouseout', () => { tooltip.style.display = 'none'; });
+
 
 
   // Create the starting marker with custom icon
@@ -140,6 +172,26 @@ const showMap = (activity) => {
     };
   }
 
+
+  // User profile (top-right corner)
+  if (athlete && !isSharedMode) {
+    const profileEl = L.DomUtil.create('div', 'user-profile', map.getContainer());
+    profileEl.innerHTML = `<img src="${athlete.profile}" alt="avatar" class="user-profile-avatar"><span class="user-profile-name">${athlete.firstname} ${athlete.lastname}</span>`;
+    const logoutEl = L.DomUtil.create('div', 'user-profile-logout', map.getContainer());
+    logoutEl.textContent = 'Log out';
+    logoutEl.style.display = 'none';
+    logoutEl.onclick = () => goToLoginPage();
+    profileEl.onclick = (e) => {
+      e.stopPropagation();
+      logoutEl.style.display = logoutEl.style.display === 'none' ? 'block' : 'none';
+    };
+    document.addEventListener('click', () => {
+      logoutEl.style.display = 'none';
+    });
+  } else if (isSharedMode && activity.athlete_firstname) {
+    const profileEl = L.DomUtil.create('div', 'user-profile', map.getContainer());
+    profileEl.innerHTML = `<img src="${activity.athlete_profile}" alt="avatar" class="user-profile-avatar"><span class="user-profile-name">${activity.athlete_firstname} ${activity.athlete_lastname}</span>`;
+  }
 
   // Share button (only when logged in, not in shared mode)
   if (accessToken && !isSharedMode) {
@@ -253,6 +305,9 @@ async function shareActivity(activity) {
       distance: activity.distance,
       type: activity.type,
       strava_activity_id: activity.id,
+      athlete_firstname: athlete ? athlete.firstname : '',
+      athlete_lastname: athlete ? athlete.lastname : '',
+      athlete_profile: athlete ? athlete.profile : '',
     };
 
     const res = await fetch('https://api.strava-mapy.com/share', {
@@ -392,6 +447,7 @@ const init = async () => {
       console.log("Using stored Strava token:", storedToken);
       accessToken = storedToken; // Use the stored access token
       showSpinner();
+      await fetchAthlete();
       await fetchActivities();
     } else if (code) {
       console.log("Strava code:", code);
@@ -407,6 +463,8 @@ const init = async () => {
 
       // Store the access token in localStorage
       localStorage.setItem('accessToken', accessToken);
+
+      await fetchAthlete();
 
       // reflect activityId in URL
       const activityId = params.get("state"); //activityId
@@ -445,6 +503,14 @@ async function fetchFromStrava(url) {
 
   return await response.json()
 
+}
+//------------------------------------------------------------------------------
+async function fetchAthlete() {
+  try {
+    athlete = await fetchFromStrava("https://www.strava.com/api/v3/athlete");
+  } catch (e) {
+    console.error("Failed to fetch athlete:", e);
+  }
 }
 //------------------------------------------------------------------------------
 async function fetchActivities() {
