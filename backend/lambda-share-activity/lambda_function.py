@@ -101,6 +101,11 @@ def handler(event, context):
 
     # Build the shared activity object
     share_id = ''.join(secrets.choice(string.ascii_lowercase) for _ in range(10))
+
+    altitude = data.get("altitude")
+    if altitude is not None and (not isinstance(altitude, list) or len(altitude) > MAX_LATLNGS):
+        altitude = None
+
     shared_activity = {
         "latlngs": latlngs,
         "name": name,
@@ -112,6 +117,7 @@ def handler(event, context):
         "athlete_firstname": data.get("athlete_firstname", ""),
         "athlete_lastname": data.get("athlete_lastname", ""),
         "athlete_profile": data.get("athlete_profile", ""),
+        "altitude": altitude,
         "shared_at": datetime.utcnow().isoformat() + "Z",
     }
 

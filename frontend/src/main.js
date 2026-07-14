@@ -82,7 +82,7 @@ const showMap = (activity) => {
     .addTo(map);
 */
 
-  // Track hover tooltip – shows elapsed/remaining km
+  // Track hover tooltip – shows elapsed/remaining km, time, elevation
   const hitLine = L.polyline(activity.latlngs, { weight: 20, opacity: 0, interactive: true }).addTo(map);
   const tooltip = L.DomUtil.create('div', 'track-tooltip', map.getContainer());
   tooltip.style.display = 'none';
@@ -94,6 +94,31 @@ const showMap = (activity) => {
   }
   const totalDistM = cumDist[cumDist.length - 1];
 
+  // Precompute cumulative elevation gain
+  const altData = activity.altitude;
+  let cumEleGain = null;
+  let totalEleGain = 0;
+  if (altData && altData.length === trackPts.length) {
+    cumEleGain = [0];
+    for (let k = 1; k < altData.length; k++) {
+      const diff = altData[k] - altData[k - 1];
+      cumEleGain.push(cumEleGain[k - 1] + (diff > 0 ? diff : 0));
+    }
+    totalEleGain = cumEleGain[cumEleGain.length - 1];
+  }
+
+  // Time data
+  const timeData = activity.time;
+  const totalTime = activity.elapsed_time || (timeData ? timeData[timeData.length - 1] : 0);
+
+  const formatTime = (seconds) => {
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = Math.floor(seconds % 60);
+    if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    return `${m}:${String(s).padStart(2, '0')}`;
+  };
+
   const showTrackTooltip = (e) => {
     let minD = Infinity, nearIdx = 0;
     for (let k = 0; k < trackPts.length; k++) {
@@ -102,7 +127,35 @@ const showMap = (activity) => {
     }
     const fromStart = (cumDist[nearIdx] / 1000).toFixed(1);
     const toEnd = ((totalDistM - cumDist[nearIdx]) / 1000).toFixed(1);
-    tooltip.innerHTML = `<span><strong>${fromStart}</strong> km<br>od startu</span><span><strong>${toEnd}</strong> km<br>do c\xEDle</span>`;
+
+    // Time
+    let elapsedTime, remainingTime;
+    if (timeData && timeData.length === trackPts.length) {
+      elapsedTime = timeData[nearIdx];
+      remainingTime = (timeData[timeData.length - 1]) - elapsedTime;
+    } else if (totalTime && totalDistM > 0) {
+      elapsedTime = totalTime * (cumDist[nearIdx] / totalDistM);
+      remainingTime = totalTime - elapsedTime;
+    }
+
+    // Elevation
+    let eleGainHere = null, eleGainRemaining = null;
+    if (cumEleGain) {
+      eleGainHere = Math.round(cumEleGain[nearIdx]);
+      eleGainRemaining = Math.round(totalEleGain - cumEleGain[nearIdx]);
+    }
+
+    let html = `<span><strong>${fromStart}</strong> km<br>from start</span><span><strong>${toEnd}</strong> km<br>to finish</span>`;
+    if (elapsedTime !== undefined && activity.start_date_local) {
+      const startMs = new Date(activity.start_date_local.replace('Z', '')).getTime();
+      const pointTime = new Date(startMs + elapsedTime * 1000);
+      const timeStr = pointTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      html += `<span><strong>${timeStr}</strong><br>time</span>`;
+    }
+    if (eleGainHere !== null) {
+      html += `<span><strong>${eleGainHere}</strong> m<br>\u2191 gained</span><span><strong>${eleGainRemaining}</strong> m<br>\u2191 remaining</span>`;
+    }
+    tooltip.innerHTML = html;
     tooltip.style.display = 'flex';
     const pt = map.latLngToContainerPoint(e.latlng);
     tooltip.style.left = pt.x + 'px';
@@ -123,8 +176,10 @@ const showMap = (activity) => {
 
   // Create the ending marker with custom icon
   const endMarker = L.marker(activity.latlngs[activity.latlngs.length - 1], {}).addTo(map);
-  const startDate = new Date(activity.start_date_local);
-  endMarker.bindPopup("End: " + formatDate(new Date(startDate.getTime() + activity.elapsed_time * 1000)));
+  if (activity.start_date_local && activity.elapsed_time) {
+    const startDate = new Date(activity.start_date_local.replace('Z', ''));
+    endMarker.bindPopup("End: " + formatDate(new Date(startDate.getTime() + activity.elapsed_time * 1000)));
+  }
   endMarker.setOpacity(0.8);
 
 
@@ -239,7 +294,10 @@ async function onSwitchActivity(selectedIndex, map) {
     const mapContainer = document.getElementById("map");
     mapContainer.style.display = "none";
     let activity = activities[selectedIndex];
-    activity.latlngs = await downloadGpx(activity.id);
+    const streams = await downloadGpx(activity.id);
+    activity.latlngs = streams.latlngs;
+    activity.time = streams.time;
+    activity.altitude = streams.altitude;
     showMap(activity);
   }
   finally {
@@ -258,7 +316,7 @@ function formatDistance(distance) {
 
 // Function to convert start date to local time without trailing seconds
 function formatDate(dateStr) {
-  const date = new Date(dateStr);
+  const date = dateStr instanceof Date ? dateStr : new Date(String(dateStr).replace('Z', ''));
   return date.toLocaleString().replace(/:\d{2}$/, ''); // Remove seconds
 }
 // ------------------------------------------------------------
@@ -308,6 +366,7 @@ async function shareActivity(activity) {
       athlete_firstname: athlete ? athlete.firstname : '',
       athlete_lastname: athlete ? athlete.lastname : '',
       athlete_profile: athlete ? athlete.profile : '',
+      altitude: activity.altitude || null,
     };
 
     const res = await fetch('https://api.strava-mapy.com/share', {
@@ -538,7 +597,7 @@ async function fetchActivities() {
     index = activities.push(data) - 1;
   }
 
-  onSwitchActivity(index, null)
+  await onSwitchActivity(index, null)
 }
 
 // ------------------------------------------------
@@ -564,8 +623,7 @@ function hideSpinner() {
 //----------------------------------------------------------------------------------------------
 
 async function downloadGpx(activityId) {
-  const url = `https://www.strava.com/api/v3/activities/${activityId}/streams?keys=latlng&key_by_type=true`;
-  //const url = `https://api.strava-mapy.com/activities/${activityId}/streams?keys=latlng&key_by_type=true`;
+  const url = `https://www.strava.com/api/v3/activities/${activityId}/streams?keys=latlng,time,altitude&key_by_type=true`;
   const response = await fetch(url, {
     headers: {
       Authorization: `Bearer ${accessToken}`
@@ -581,7 +639,11 @@ async function downloadGpx(activityId) {
   }
 
   const data = await response.json();
-  return data.latlng.data;
+  return {
+    latlngs: data.latlng.data,
+    time: data.time ? data.time.data : null,
+    altitude: data.altitude ? data.altitude.data : null,
+  };
 
 }
 //------------------------------------------------------------------------------------
